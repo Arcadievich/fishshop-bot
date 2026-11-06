@@ -2,7 +2,13 @@ import os
 
 import redis
 from dotenv import load_dotenv
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
+    CallbackContext,
     CallbackQueryHandler,
     CommandHandler,
     Filters,
@@ -10,30 +16,72 @@ from telegram.ext import (
     Updater,
 )
 
+from api_functions import (
+    get_all_products,
+    get_product_by_id,
+    get_product_picture_bytes,
+)
+
 _database = None
 
 
 def start(update, context):
-    """
-    Хэндлер для состояния START.
-    
-    Бот отвечает пользователю фразой "Привет!" и переводит его в состояние ECHO.
-    Теперь в ответ на его команды будет запускаеться хэндлер echo.
-    """
-    update.message.reply_text(text='Привет!')
-    return 'ECHO'
+    cms_token = context.bot_data.get('cms_token')
+    cms_url = context.bot_data.get('cms_url')
+
+    products_from_cms = get_all_products(cms_token, cms_url)
+
+    keyboard = []
+
+    for product in products_from_cms:
+        keyboard.append([
+            InlineKeyboardButton(
+                product['title'],
+                callback_data=product['id'],
+            )
+        ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    update.message.reply_text(text='Please choose:', reply_markup=reply_markup)
+
+    return 'HANDLE_MENU'
 
 
-def echo(update, context):
-    """
-    Хэндлер для состояния ECHO.
-    
-    Бот отвечает пользователю тем же, что пользователь ему написал.
-    Оставляет пользователя в состоянии ECHO.
-    """
-    users_reply = update.message.text
-    update.message.reply_text(users_reply)
-    return 'ECHO'
+def press_product_button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    old_message = query.message
+
+    cms_token = context.bot_data.get('cms_token')
+    cms_url = context.bot_data.get('cms_url')
+
+    product = get_product_by_id(cms_token, cms_url, query.data)
+
+    query.answer()
+
+    try:
+        old_message.delete()
+    except Exception as e:
+        print(f'Не удалось удалить сообщение: {e}')
+
+    caption_text = f"{product['title']}\n\n{product['description']}"
+
+    try:
+        picture_bytes = get_product_picture_bytes(product, cms_url)
+    except (KeyError, TypeError):
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=caption_text,
+        )
+    else:
+        context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=picture_bytes,
+            caption=caption_text,
+            parse_mode='HTML',
+        )
+
+    return 'START'
 
 
 def handle_users_reply(update, context):
@@ -65,7 +113,7 @@ def handle_users_reply(update, context):
     
     states_functions = {
         'START': start,
-        'ECHO': echo
+        'HANDLE_MENU': press_product_button
     }
     state_handler = states_functions[user_state]
     # Если вы вдруг не заметите, что python-telegram-bot перехватывает ошибки.
@@ -96,19 +144,37 @@ def get_database_connection():
     return _database
 
 
-if __name__ == '__main__':
+def main():
     load_dotenv()
-
+    
     token = os.getenv('TG_BOT_TOKEN')
+    cms_token = os.environ['READ_ONLY_TOKEN']
+    cms_host = os.getenv('HOST', 'localhost')
+    cms_port = os.getenv('PORT', '1337')
+
+    cms_url = f'http://{cms_host}:{cms_port}'
+
     updater = Updater(
         token,
         request_kwargs={
             'proxy_url': 'http://127.0.0.1:2080',
-        }
+        },
+        use_context=True,
     )
     dispatcher = updater.dispatcher
+
+    dispatcher.bot_data['cms_token'] = cms_token
+    dispatcher.bot_data['cms_url'] = cms_url
+
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
+
+    print('Бот запущен.')
+
     updater.start_polling()
     updater.idle()
+
+
+if __name__ == '__main__':
+    main()

@@ -130,3 +130,5 @@ dist
 build
 .strapi-updater.json
 .strapi-cloud.json
+
+__pycache__

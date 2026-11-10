@@ -36,19 +36,15 @@ def get_all_products(token, base_url) -> list:
 
 def get_product_by_id(token, base_url, product_id):
     response = requests.get(
-        f'{base_url}/api/products',
+        f'{base_url}/api/products/{product_id}',
         headers={'Authorization': f'Bearer {token}'},
         params={
-            'filters[id][$eq]': product_id,
-            'pagination[pageSize]': 1,
             'populate': 'picture',
         },
     )
     response.raise_for_status()
 
-    record = response.json()['data']
-
-    return record[0]
+    return response.json()['data']
 
 
 def get_product_picture_bytes(product, base_url) -> io.BytesIO:
@@ -62,6 +58,61 @@ def get_product_picture_bytes(product, base_url) -> io.BytesIO:
     picture_bytes.seek(0)
 
     return picture_bytes
+
+
+def create_cart(token, base_url, tg_user_id):
+    url = f'{base_url}/api/carts'
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+    }
+
+    payload = {
+        'data': {
+            'tg_user_id': tg_user_id,
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+
+    return response.json()['data']
+
+
+def add_product_to_cart(token, base_url, cart_document_id, product_document_id):
+    url = f'{base_url}/api/positions'
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+    }
+
+    payload = {
+        'data': {
+            'weight': 1,
+            'cart': cart_document_id,
+            'product': product_document_id,
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+
+    return response.json()['data']
+
+
+def get_cart_by_user(token, base_url, tg_user_id):
+    url = f'{base_url}/api/carts'
+
+    headers = {'Authorization': f'Bearer {token}'}
+
+    params = {'filters[tg_user_id][$eq]': str(tg_user_id)}
+
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()
+
+    return response.json()['data']
 
 
 def main():

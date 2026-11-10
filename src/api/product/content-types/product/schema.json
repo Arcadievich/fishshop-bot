@@ -29,6 +29,12 @@
     },
     "price": {
       "type": "decimal"
+    },
+    "positions": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::position.position",
+      "mappedBy": "product"
     }
   }
 }

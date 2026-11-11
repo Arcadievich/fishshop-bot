@@ -21,82 +21,88 @@ from api_functions import (
     create_cart,
     get_all_products,
     get_cart_by_user,
-    get_product_by_id,
+    get_cart_with_products,
+    get_product_by_documentid,
     get_product_picture_bytes,
 )
 
 _database = None
 
 
-def send_menu(chat_id, context):
-    """Отправляет пользователю меню с продуктами."""
-    cms_token = context.bot_data.get('cms_read_token')
-    cms_url = context.bot_data.get('cms_url')
-
-    products_from_cms = get_all_products(cms_token, cms_url)
-
+def get_main_menu_keyboard(products):
     keyboard = []
-
-    for product in products_from_cms:
+    for product in products:
         keyboard.append([
             InlineKeyboardButton(
                 product['title'],
                 callback_data=product['documentId'],
             )
         ])
+    keyboard.append([InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def send_menu(chat_id, context):
+    cms_token = context.bot_data.get('cms_read_token')
+    cms_url = context.bot_data.get('cms_url')
+
+    products = get_all_products(cms_token, cms_url)
+    keyboard = get_main_menu_keyboard(products)
 
     context.bot.send_message(
         chat_id=chat_id,
-        text='Please choose:',
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        text='Выберите товар:',
+        reply_markup=keyboard,
     )
 
 
 def start(update: Update, context: CallbackContext):
     send_menu(update.effective_chat.id, context)
-
     return 'HANDLE_MENU'
 
 
 def press_product_button(update: Update, context: CallbackContext):
     query = update.callback_query
-    old_message = query.message
+    query.answer()
 
-    cms_read_token = context.bot_data.get('cms_read_token')
-    cms_url = context.bot_data.get('cms_url')
+    if query.data == 'show_user_cart':
+        return handle_show_cart(update, context)
+    if query.data == 'back_to_menu':
+        return start(update, context)
 
     product_document_id = query.data
     context.user_data['choosen_product_document_id'] = product_document_id
 
-    product = get_product_by_id(cms_read_token, cms_url, query.data)
-
-    query.answer()
+    cms_token = context.bot_data.get('cms_read_token')
+    cms_url = context.bot_data.get('cms_url')
+    product = get_product_by_documentid(cms_token, cms_url, product_document_id)
 
     try:
-        old_message.delete()
-    except Exception as e:
-        print(f'Не удалось удалить сообщение: {e}')
+        query.message.delete()
+    except Exception:
+        pass
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton('Добавить в корзину', callback_data='add_to_cart')],
+        [InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')],
         [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
     ])
 
-    caption_text = f"{product['title']}\n\n{product['description']}"
+    caption = f"{product['title']}\n\n{product['description']}"
 
     try:
         picture_bytes = get_product_picture_bytes(product, cms_url)
     except (KeyError, TypeError):
         context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=caption_text,
+            text=caption,
             reply_markup=keyboard,
         )
     else:
         context.bot.send_photo(
             chat_id=update.effective_chat.id,
             photo=picture_bytes,
-            caption=caption_text,
+            caption=caption,
             parse_mode='HTML',
             reply_markup=keyboard,
         )
@@ -104,73 +110,100 @@ def press_product_button(update: Update, context: CallbackContext):
     return 'HANDLE_DESCRIPTION'
 
 
-def handle_description_buttons(update: Update, context: CallbackContext):
-    """Обрабатывает нажатия кнопок под описанием продукта."""
+def handle_add_to_cart(update: Update, context: CallbackContext):
     cms_token = context.bot_data.get('cms_full_access_token')
     cms_url = context.bot_data.get('cms_url')
+    user_id = update.effective_chat.id
+    product_document_id = context.user_data.get('choosen_product_document_id')
 
-    query = update.callback_query
-    old_message = query.message
+    user_carts = get_cart_by_user(cms_token, cms_url, user_id)
 
-    query.answer()
+    if user_carts:
+        cart_document_id = user_carts[0]['documentId']
+    else:
+        new_cart = create_cart(cms_token, cms_url, str(user_id))
+        cart_document_id = new_cart['documentId']
+
+    add_product_to_cart(
+        cms_token,
+        cms_url,
+        cart_document_id,
+        product_document_id,
+    )
 
     try:
-        old_message.delete()
-    except Exception as e:
-        print(f'Не удалось удалить сообщение: {e}')
+        update.callback_query.message.delete()
+    except Exception:
+        pass
+
+    send_menu(user_id, context)
+    return 'HANDLE_MENU'
+
+
+def handle_show_cart(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    cms_token = context.bot_data.get('cms_full_access_token')
+    cms_url = context.bot_data.get('cms_url')
+    user_id = update.effective_chat.id
+
+    try:
+        query.message.delete()
+    except Exception:
+        pass
+
+    cart = get_cart_with_products(cms_token, cms_url, user_id)
+
+    if not cart or not cart.get('positions'):
+        text = 'Ваша корзина пуста.'
+    else:
+        lines = ['<b>Ваша корзина:</b>\n']
+        total = 0
+        for position in cart['positions']:
+            product = position['product']
+            weight = position['weight']
+            price = product['price']
+            total += price * weight
+            lines.append(f"- {product['title']} — {weight} шт. × {price} руб.")
+        lines.append(f'\n<b>Итого: {total} руб.</b>')
+        text = '\n'.join(lines)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
+    ])
+
+    context.bot.send_message(
+        chat_id=user_id,
+        text=text,
+        parse_mode='HTML',
+        reply_markup=keyboard,
+    )
+
+    return 'HANDLE_MENU'
+
+
+def handle_description_buttons(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
 
     if query.data == 'back_to_menu':
-        send_menu(update.effective_chat.id, context)
-        return 'HANDLE_MENU'
-    
-    elif query.data == 'add_to_cart':
-        user_cart = get_cart_by_user(cms_token, cms_url, update.effective_chat.id)
-        product_document_id = context.user_data.get('choosen_product_document_id')
-        
-        if user_cart:
-            add_product_to_cart(
-                cms_token,
-                cms_url,
-                user_cart[0]['documentId'],
-                product_document_id,
-            )
-            send_menu(update.effective_chat.id, context)
+        try:
+            query.message.delete()
+        except Exception:
+            pass
+        return start(update, context)
 
-            return 'HANDLE_MENU'
-        
-        else:
-            user_cart = create_cart(
-                cms_token,
-                cms_url,
-                str(update.effective_chat.id),
-            )
+    if query.data == 'add_to_cart':
+        return handle_add_to_cart(update, context)
 
-            add_product_to_cart(
-                cms_token,
-                cms_url,
-                user_cart['documentId'],
-                product_document_id,
-            )
-
-            send_menu(update.effective_chat.id, context)
-
-            return 'HANDLE_MENU'
+    if query.data == 'show_user_cart':
+        return handle_show_cart(update, context)
 
 
 def handle_users_reply(update, context):
-    """
-    Функция, которая запускается при любом сообщении от пользователя и решает как его обработать.
-    Эта функция запускается в ответ на эти действия пользователя:
-        * Нажатие на inline-кнопку в боте
-        * Отправка сообщения боту
-        * Отправка команды боту
-    Она получает стейт пользователя из базы данных и запускает соответствующую функцию-обработчик (хэндлер).
-    Функция-обработчик возвращает следующее состояние, которое записывается в базу данных.
-    Если пользователь только начал пользоваться ботом, Telegram форсит его написать "/start",
-    поэтому по этой фразе выставляется стартовое состояние.
-    Если пользователь захочет начать общение с ботом заново, он также может воспользоваться этой командой.
-    """
     db = get_database_connection()
+
     if update.message:
         user_reply = update.message.text
         chat_id = update.message.chat_id
@@ -179,75 +212,62 @@ def handle_users_reply(update, context):
         chat_id = update.callback_query.message.chat_id
     else:
         return
+
     if user_reply == '/start':
         user_state = 'START'
     else:
-        user_state = db.get(chat_id).decode('utf-8')
-    
+        state = db.get(chat_id)
+        user_state = state.decode('utf-8') if state else 'START'
+
     states_functions = {
         'START': start,
         'HANDLE_MENU': press_product_button,
         'HANDLE_DESCRIPTION': handle_description_buttons,
     }
+
     state_handler = states_functions[user_state]
-    # Если вы вдруг не заметите, что python-telegram-bot перехватывает ошибки.
-    # Оставляю этот try...except, чтобы код не падал молча.
-    # Этот фрагмент можно переписать.
+
     try:
         next_state = state_handler(update, context)
-        db.set(chat_id, next_state)
+        if next_state:
+            db.set(chat_id, next_state)
     except Exception as err:
-        print(err)
+        print(f'Ошибка: {err}')
 
 
 def get_database_connection():
-    """
-    Возвращает конекшн с базой данных Redis, либо создаёт новый, если он ещё не создан.
-    """
     global _database
     if _database is None:
         load_dotenv()
-        database_number = os.getenv('DATABASE_NUMBER')
-        database_host = os.getenv('DATABASE_HOST')
-        database_port = os.getenv('DATABASE_PORT')
         _database = redis.Redis(
-            host=database_host,
-            port=database_port,
-            db=database_number,
+            host=os.getenv('DATABASE_HOST'),
+            port=os.getenv('DATABASE_PORT'),
+            db=os.getenv('DATABASE_NUMBER'),
         )
     return _database
 
 
 def main():
     load_dotenv()
-    
-    tg_token = os.getenv('TG_BOT_TOKEN')
-    cms_read_token = os.environ['READ_ONLY_TOKEN']
-    cms_full_access_token = os.environ['FULL_ACCESS_TOKEN']
-    cms_host = os.getenv('HOST', 'localhost')
-    cms_port = os.getenv('PORT', '1337')
-
-    cms_url = f'http://{cms_host}:{cms_port}'
 
     updater = Updater(
-        tg_token,
-        request_kwargs={
-            'proxy_url': 'http://127.0.0.1:2080',
-        },
+        os.getenv('TG_BOT_TOKEN'),
+        request_kwargs={'proxy_url': 'http://127.0.0.1:2080'},
         use_context=True,
     )
     dispatcher = updater.dispatcher
 
-    dispatcher.bot_data['cms_read_token'] = cms_read_token
-    dispatcher.bot_data['cms_full_access_token'] = cms_full_access_token
-    dispatcher.bot_data['cms_url'] = cms_url
+    dispatcher.bot_data['cms_read_token'] = os.environ['READ_ONLY_TOKEN']
+    dispatcher.bot_data['cms_full_access_token'] = os.environ['FULL_ACCESS_TOKEN']
+    dispatcher.bot_data['cms_url'] = (
+        f"http://{os.getenv('HOST', 'localhost')}:{os.getenv('PORT', '1337')}"
+    )
 
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
 
     print('Бот запущен.')
-
     updater.start_polling()
     updater.idle()
 

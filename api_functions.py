@@ -135,6 +135,37 @@ def get_cart_with_products(token, base_url, tg_user_id):
     return None
 
 
+def delete_position(token, base_url, document_id):
+    response = requests.delete(
+        f'{base_url}/api/positions/{document_id}',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    response.raise_for_status()
+
+
+def delete_cart(token, base_url, document_id):
+    response = requests.delete(
+        f'{base_url}/api/carts/{document_id}',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    response.raise_for_status()
+
+
+def delete_user_cart(token, base_url, tg_user_id):
+    cart_with_positions = get_cart_with_products(token, base_url, tg_user_id)
+
+    cart_id = cart_with_positions['documentId']
+    positions_ids = []
+
+    for position in cart_with_positions['positions']:
+        positions_ids.append(position['documentId'])
+
+    for position_id in positions_ids:
+        delete_position(token, base_url, position_id)
+
+    delete_cart(token, base_url, cart_id)
+
+
 def main():
     load_dotenv()
     api_token = os.environ['READ_ONLY_TOKEN']

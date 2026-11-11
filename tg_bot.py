@@ -19,6 +19,7 @@ from telegram.ext import (
 from api_functions import (
     add_product_to_cart,
     create_cart,
+    delete_user_cart,
     get_all_products,
     get_cart_by_user,
     get_cart_with_products,
@@ -170,6 +171,7 @@ def handle_show_cart(update: Update, context: CallbackContext):
         text = '\n'.join(lines)
 
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('Удалить товар', callback_data='delete_cart')],
         [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
     ])
 
@@ -180,7 +182,7 @@ def handle_show_cart(update: Update, context: CallbackContext):
         reply_markup=keyboard,
     )
 
-    return 'HANDLE_MENU'
+    return 'HANDLE_CART'
 
 
 def handle_description_buttons(update: Update, context: CallbackContext):
@@ -199,6 +201,35 @@ def handle_description_buttons(update: Update, context: CallbackContext):
 
     if query.data == 'show_user_cart':
         return handle_show_cart(update, context)
+
+
+def handle_delete_user_cart(update: Update, context: CallbackContext):
+    cms_token = context.bot_data.get('cms_full_access_token')
+    cms_url = context.bot_data.get('cms_url')
+    user_id = update.effective_chat.id
+
+    delete_user_cart(cms_token, cms_url, user_id)
+
+    return start(update, context)
+
+
+def handle_cart_buttons(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    if query.data == 'back_to_menu':
+        try:
+            query.message.delete()
+        except Exception:
+            pass
+        return start(update, context)
+    
+    if query.data == 'delete_cart':
+        try:
+            query.message.delete()
+        except Exception:
+            pass
+        return handle_delete_user_cart(update, context)
 
 
 def handle_users_reply(update, context):
@@ -223,6 +254,7 @@ def handle_users_reply(update, context):
         'START': start,
         'HANDLE_MENU': press_product_button,
         'HANDLE_DESCRIPTION': handle_description_buttons,
+        'HANDLE_CART': handle_cart_buttons,
     }
 
     state_handler = states_functions[user_state]

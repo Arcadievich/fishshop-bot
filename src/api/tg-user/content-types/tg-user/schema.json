@@ -1,0 +1,23 @@
+{
+  "kind": "collectionType",
+  "collectionName": "tg_users",
+  "info": {
+    "singularName": "tg-user",
+    "pluralName": "tg-users",
+    "displayName": "TG_User"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "username": {
+      "type": "string",
+      "required": true
+    },
+    "email": {
+      "type": "email",
+      "required": true
+    }
+  }
+}

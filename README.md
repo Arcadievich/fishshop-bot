@@ -1,61 +1,115 @@
-# 🚀 Getting started with Strapi
+# Бот-магазин для Telegram
 
-Strapi comes with a full featured [Command Line Interface](https://docs.strapi.io/dev-docs/cli) (CLI) which lets you scaffold and manage your project in seconds.
+Представленный telegram-бот совмещает в себе удобную базу данных с веб-интерфейсом для создания, удаления карточек товаров и позволяет пользователю удобно взаимодействовать с магазином прямо внутри чата в Telegram
 
-### `develop`
+## Установка
 
-Start your Strapi application with autoReload enabled. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-develop)
+- Установите [Python](https://www.python.org/downloads/) версии 3.11.8
+- Клоинруйте данный [репозиторий](https://github.com/Arcadievich/fishshop-bot/archive/refs/heads/main.zip) на свой ПК
+- Установите [NodeJS](https://nodejs.org/en/download) версии 26.13.0 вместе с `npm`
+- Установите [Docker](https://www.docker.com/)
+- Открыв командную строку, перейдите в папку с репозиторием и создайте виртуальное окружение `python` командой:
 
+```bash
+python -m venv .venv
 ```
+
+- Активируйте виртуальное окружение командой:
+
+Windows:
+```bash
+.venv\Scripts\activate
+```
+
+Linux/macOS:
+```bash
+source .venv/bin/activate
+```
+
+- Установите в виртуальное окружение необходимые библиотеки командой:
+
+```bash
+pip install -r requirements.txt
+```
+
+- ❗️Импортируйте тестовые товары в базу данных Strapi следующей командой:
+
+```bash
+npm run strapi import -- -f data/example-data.tar.gz
+```
+
+### Настройка переменных окружения
+
+В корнейвой папке проекта есть файл `env.example`, в котором перечислены основные пременные окружения, которые вам нужно указать. Чтобы не тратить больших усилий на создание токенов для Strapi используйте скрипт `generate_env.py`. Он создаст `.env` файл с большинством необходимых переменных.
+
+```bash
+python generate_env.py
+```
+
+Перечень переменных окружения и способы их получения. Переменные, которые вам придется указать самому помечены восклицательным знаком:
+- ❗️`FULL_ACCESS_TOKEN` - Запустите Strapi командой `npm run develop`. Откройте в браузере веб-интерфейс Strapi (по умолчанию `localhost:1337`), перейдите в `Settings` -> `API Tokens` -> `Edit Full Access`, нажмите `Regenerate`, затем `View token` и скопируйте значение в переменную
+- ❗️`TG_BOT_TOKEN` - токен вашего Telegram-бота, который можно получить, создав бота через [BotFather](https://web.telegram.org/k/#@BotFather)
+- `APP_KEYS` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `API_TOKEN_SALT` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `ADMIN_JWT_SECRET` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `TRANSFER_TOKEN_SALT` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `JWT_SECRET` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `ENCRYPTION_KEY` - токен сгенерируется после выполнения скрипта `generate_env.py`
+- `HOST` - хост Strapi (по ум. `localhost`)
+- `PORT` - порт Strapi (по ум. `1337`)
+- `DATABASE_CLIENT` - клиент базы данных Strapi (по ум. `sqlite`)
+- `DATABASE_HOST` - хост базы данных Strapi (по ум. `localhost`)
+- `DATABASE_PORT` - порт базы данных Strapi (по ум. `6379`)
+- `DATABASE_NUMBER` - номер базы данных Strapi (по ум. `0`)
+- `DATABASE_SSL` - SSL базы данных Strapi (по ум. `false`)
+- `DATABASE_FILENAME` - файл с базой данных Strapi (по ум. `.tmp/data`)
+- ℹ️`PROXY_URL` - вы можете указать свой прокси, если он необходим для запуска Telegram бота
+
+## Запуск приложения
+
+- Запустите базу данных Redis внутри Docker-контейнера командой:
+
+```bash
+docker run -d --name redis-rdb -p 6379:6379 -v redis-data:/data redis:latest redis-server --save 60 1
+```
+
+- Откройте командную строку, перейдите в корневую директорию проекта, запустите виртуальное окружение python и запустите Strapi командами:
+
+Активация виртуальной среды в Windows:
+```bash
+.venv\Scripts\activate
+```
+
+Активация виртуальной среды в Linux/macOS:
+```bash
+source .venv/bin/activate
+```
+
+Запустите приложение Strapi:
+```bash
 npm run develop
-# or
-yarn develop
 ```
 
-### `start`
+- Откройте ещё одну командную строку, перейдите в корневую директорию проекта, активируйте виртуальную среду python. Запустите Telegram бота:
 
-Start your Strapi application with autoReload disabled. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-start)
-
-```
-npm run start
-# or
-yarn start
+```bash
+python tg_bot.py
 ```
 
-### `build`
+## Описание работы бота
 
-Build your admin panel. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-build)
+### Strapi (CMS)
 
-```
-npm run build
-# or
-yarn build
-```
+Запустив приложение Strapi, вы получаете гибкую базу данных с удобным веб-интерфейсом, который позволяет добавлять, изменять и удалять карточки товаров, которые будут отображаться в чате с ботом в Telegram. Также через интерфейс Strapi вы можете узнать электронную почту пользователей, которые готовы совершить покупку в вашем магазине.
 
-## ⚙️ Deployment
+Для изменения товаров вам нужно в браузере открыть страницу Strapi (по умолчанию `http://localhost:1337/admin`), перейти во вкладку `Content Manager` и в `Collection types` выбрать `Product`. Там нажав кнопку `Create new entry` вы можете создать новую карточку товара. После этого новый товар будет отображаться внутри чат-бота.
 
-Strapi gives you many possible deployment options for your project including [Strapi Cloud](https://cloud.strapi.io). Browse the [deployment section of the documentation](https://docs.strapi.io/dev-docs/deployment) to find the best solution for your use case.
+### Telegram Бот
 
-```
-yarn strapi deploy
-```
+Открыв чат с ботом напишите команду `/start`, вы получите меню товаров из кнопок. Функционал бота позволяет посмотреть отдельно каждый товар, добавлять их в корзину, удалять из корзины и отправлять запрос на покупку с указанием электронной почты для коммуникации.
 
-## 📚 Learn more
+Во время работы бот взаимодействует сразу с двумя базами данных: Strapi (CMS) - для получения карточек товаров и отправки почты пользователей, Redis внутри Docker-контейнера - для сохранения состояний взаимодействия с клиентами.
 
-- [Resource center](https://strapi.io/resource-center) - Strapi resource center.
-- [Strapi documentation](https://docs.strapi.io) - Official Strapi documentation.
-- [Strapi tutorials](https://strapi.io/tutorials) - List of tutorials made by the core team and the community.
-- [Strapi blog](https://strapi.io/blog) - Official Strapi blog containing articles made by the Strapi team and the community.
-- [Changelog](https://strapi.io/changelog) - Find out about the Strapi product updates, new features and general improvements.
+### Цель проекта
 
-Feel free to check out the [Strapi GitHub repository](https://github.com/strapi/strapi). Your feedback and contributions are welcome!
-
-## ✨ Community
-
-- [Discord](https://discord.strapi.io) - Come chat with the Strapi community including the core team.
-- [Forum](https://forum.strapi.io/) - Place to discuss, ask questions and find answers, show your Strapi project and get feedback or just talk with other Community members.
-- [Awesome Strapi](https://github.com/strapi/awesome-strapi) - A curated list of awesome things related to Strapi.
-
----
-
-<sub>🤫 Psst! [Strapi is hiring](https://strapi.io/careers).</sub>
+Код написан в образовательных целях на онлайн-курсе для веб-разработчиков [dvmn.org](https://dvmn.org/).

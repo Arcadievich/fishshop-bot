@@ -25,40 +25,68 @@ from api_functions import (
     get_cart_with_products,
     get_product_by_documentid,
     get_product_picture_bytes,
+    save_user,
 )
 
 _database = None
 
 
 def get_main_menu_keyboard(products):
-    keyboard = []
-    for product in products:
-        keyboard.append([
-            InlineKeyboardButton(
-                product['title'],
-                callback_data=product['documentId'],
-            )
-        ])
-    keyboard.append([InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')])
+    keyboard = [
+        [InlineKeyboardButton(p['title'], callback_data=p['documentId'])]
+        for p in products
+    ]
+    keyboard.append([
+        InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_product_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('Добавить в корзину', callback_data='add_to_cart')],
+        [InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')],
+        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
+    ])
+
+
+def get_empty_cart_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
+    ])
+
+
+def get_full_cart_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('Оплатить', callback_data='get_email')],
+        [InlineKeyboardButton('Удалить товар', callback_data='delete_cart')],
+        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
+    ])
+
+
+def safe_delete_message(message):
+    try:
+        message.delete()
+    except Exception:
+        pass
+
+
 def send_menu(chat_id, context):
-    cms_token = context.bot_data.get('cms_read_token')
-    cms_url = context.bot_data.get('cms_url')
-
-    products = get_all_products(cms_token, cms_url)
-    keyboard = get_main_menu_keyboard(products)
-
+    """Отправляет главное меню со списком товаров."""
+    products = get_all_products(
+        context.bot_data['cms_full_access_token'],
+        context.bot_data['cms_url'],
+    )
     context.bot.send_message(
         chat_id=chat_id,
         text='Выберите товар:',
-        reply_markup=keyboard,
+        reply_markup=get_main_menu_keyboard(products),
     )
 
 
 def start(update: Update, context: CallbackContext):
     send_menu(update.effective_chat.id, context)
+
     return 'HANDLE_MENU'
 
 
@@ -72,32 +100,27 @@ def press_product_button(update: Update, context: CallbackContext):
         return start(update, context)
 
     product_document_id = query.data
-    context.user_data['choosen_product_document_id'] = product_document_id
+    context.user_data['chosen_product_document_id'] = product_document_id
 
-    cms_token = context.bot_data.get('cms_read_token')
-    cms_url = context.bot_data.get('cms_url')
-    product = get_product_by_documentid(cms_token, cms_url, product_document_id)
+    product = get_product_by_documentid(
+        context.bot_data['cms_full_access_token'],
+        context.bot_data['cms_url'],
+        product_document_id,
+    )
 
-    try:
-        query.message.delete()
-    except Exception:
-        pass
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton('Добавить в корзину', callback_data='add_to_cart')],
-        [InlineKeyboardButton('Моя корзина', callback_data='show_user_cart')],
-        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
-    ])
+    safe_delete_message(query.message)
 
     caption = f"{product['title']}\n\n{product['description']}"
 
     try:
-        picture_bytes = get_product_picture_bytes(product, cms_url)
+        picture_bytes = get_product_picture_bytes(
+            product, context.bot_data['cms_url']
+        )
     except (KeyError, TypeError):
         context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=caption,
-            reply_markup=keyboard,
+            reply_markup=get_product_keyboard(),
         )
     else:
         context.bot.send_photo(
@@ -105,84 +128,10 @@ def press_product_button(update: Update, context: CallbackContext):
             photo=picture_bytes,
             caption=caption,
             parse_mode='HTML',
-            reply_markup=keyboard,
+            reply_markup=get_product_keyboard(),
         )
 
     return 'HANDLE_DESCRIPTION'
-
-
-def handle_add_to_cart(update: Update, context: CallbackContext):
-    cms_token = context.bot_data.get('cms_full_access_token')
-    cms_url = context.bot_data.get('cms_url')
-    user_id = update.effective_chat.id
-    product_document_id = context.user_data.get('choosen_product_document_id')
-
-    user_carts = get_cart_by_user(cms_token, cms_url, user_id)
-
-    if user_carts:
-        cart_document_id = user_carts[0]['documentId']
-    else:
-        new_cart = create_cart(cms_token, cms_url, str(user_id))
-        cart_document_id = new_cart['documentId']
-
-    add_product_to_cart(
-        cms_token,
-        cms_url,
-        cart_document_id,
-        product_document_id,
-    )
-
-    try:
-        update.callback_query.message.delete()
-    except Exception:
-        pass
-
-    send_menu(user_id, context)
-    return 'HANDLE_MENU'
-
-
-def handle_show_cart(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-
-    cms_token = context.bot_data.get('cms_full_access_token')
-    cms_url = context.bot_data.get('cms_url')
-    user_id = update.effective_chat.id
-
-    try:
-        query.message.delete()
-    except Exception:
-        pass
-
-    cart = get_cart_with_products(cms_token, cms_url, user_id)
-
-    if not cart or not cart.get('positions'):
-        text = 'Ваша корзина пуста.'
-    else:
-        lines = ['<b>Ваша корзина:</b>\n']
-        total = 0
-        for position in cart['positions']:
-            product = position['product']
-            weight = position['weight']
-            price = product['price']
-            total += price * weight
-            lines.append(f"- {product['title']} — {weight} шт. × {price} руб.")
-        lines.append(f'\n<b>Итого: {total} руб.</b>')
-        text = '\n'.join(lines)
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton('Удалить товар', callback_data='delete_cart')],
-        [InlineKeyboardButton('Назад', callback_data='back_to_menu')],
-    ])
-
-    context.bot.send_message(
-        chat_id=user_id,
-        text=text,
-        parse_mode='HTML',
-        reply_markup=keyboard,
-    )
-
-    return 'HANDLE_CART'
 
 
 def handle_description_buttons(update: Update, context: CallbackContext):
@@ -190,10 +139,7 @@ def handle_description_buttons(update: Update, context: CallbackContext):
     query.answer()
 
     if query.data == 'back_to_menu':
-        try:
-            query.message.delete()
-        except Exception:
-            pass
+        safe_delete_message(query.message)
         return start(update, context)
 
     if query.data == 'add_to_cart':
@@ -203,33 +149,123 @@ def handle_description_buttons(update: Update, context: CallbackContext):
         return handle_show_cart(update, context)
 
 
-def handle_delete_user_cart(update: Update, context: CallbackContext):
-    cms_token = context.bot_data.get('cms_full_access_token')
-    cms_url = context.bot_data.get('cms_url')
+def handle_add_to_cart(update: Update, context: CallbackContext):
+    query = update.callback_query
     user_id = update.effective_chat.id
+    product_document_id = context.user_data.get('chosen_product_document_id')
 
-    delete_user_cart(cms_token, cms_url, user_id)
+    token = context.bot_data['cms_full_access_token']
+    base_url = context.bot_data['cms_url']
 
-    return start(update, context)
+    user_carts = get_cart_by_user(token, base_url, user_id)
+    if user_carts:
+        cart_document_id = user_carts[0]['documentId']
+    else:
+        new_cart = create_cart(token, base_url, str(user_id))
+        cart_document_id = new_cart['documentId']
+
+    add_product_to_cart(token, base_url, cart_document_id, product_document_id)
+
+    safe_delete_message(query.message)
+    send_menu(user_id, context)
+
+    return 'HANDLE_MENU'
+
+
+def build_cart_text_and_keyboard(cart):
+    """Собирает текст и клавиатуру корзины."""
+    if not cart or not cart.get('positions'):
+        return 'Ваша корзина пуста.', get_empty_cart_keyboard()
+
+    lines = ['<b>Ваша корзина:</b>\n']
+    total = 0
+    for position in cart['positions']:
+        product = position['product']
+        weight = position['weight']
+        price = product['price']
+        total += price * weight
+        lines.append(f"- {product['title']} — {weight} шт. × {price} руб.")
+    lines.append(f'\n<b>Итого: {total} руб.</b>')
+
+    return '\n'.join(lines), get_full_cart_keyboard()
+
+
+def handle_show_cart(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    cart = get_cart_with_products(
+        context.bot_data['cms_full_access_token'],
+        context.bot_data['cms_url'],
+        update.effective_chat.id,
+    )
+
+    safe_delete_message(query.message)
+
+    text, keyboard = build_cart_text_and_keyboard(cart)
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        parse_mode='HTML',
+        reply_markup=keyboard,
+    )
+
+    return 'HANDLE_CART'
 
 
 def handle_cart_buttons(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
+    if query.data == 'get_email':
+        safe_delete_message(query.message)
+        return handle_email_request(update, context)
+
     if query.data == 'back_to_menu':
-        try:
-            query.message.delete()
-        except Exception:
-            pass
+        safe_delete_message(query.message)
         return start(update, context)
-    
+
     if query.data == 'delete_cart':
-        try:
-            query.message.delete()
-        except Exception:
-            pass
+        safe_delete_message(query.message)
         return handle_delete_user_cart(update, context)
+
+
+def handle_delete_user_cart(update: Update, context: CallbackContext):
+    delete_user_cart(
+        context.bot_data['cms_full_access_token'],
+        context.bot_data['cms_url'],
+        update.effective_chat.id,
+    )
+
+    return start(update, context)
+
+
+def handle_email_request(update: Update, context: CallbackContext):
+    context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text='Пришлите ваш адрес электронной почты для дальнейшей связи '
+             'в следующем сообщении',
+    )
+
+    return 'WAITING_EMAIL'
+
+
+def handle_user_email_reply(update: Update, context: CallbackContext):
+    token = context.bot_data['cms_full_access_token']
+    base_url = context.bot_data['cms_url']
+    user_name = update.effective_user.username
+    user_email = update.message.text
+
+    is_created = save_user(token, base_url, user_name, user_email)
+
+    if is_created:
+        text = 'Спасибо, наш менеджер свяжется с вами по электронной почте'
+    else:
+        text = 'Вы уже оформляли заказ. Мы свяжемся с вами по указанной почте'
+
+    context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+
+    return start(update, context)
 
 
 def handle_users_reply(update, context):
@@ -255,8 +291,8 @@ def handle_users_reply(update, context):
         'HANDLE_MENU': press_product_button,
         'HANDLE_DESCRIPTION': handle_description_buttons,
         'HANDLE_CART': handle_cart_buttons,
+        'WAITING_EMAIL': handle_user_email_reply,
     }
-
     state_handler = states_functions[user_state]
 
     try:
@@ -276,20 +312,23 @@ def get_database_connection():
             port=os.getenv('DATABASE_PORT'),
             db=os.getenv('DATABASE_NUMBER'),
         )
+
     return _database
 
 
 def main():
     load_dotenv()
 
-    updater = Updater(
-        os.getenv('TG_BOT_TOKEN'),
-        request_kwargs={'proxy_url': 'http://127.0.0.1:2080'},
-        use_context=True,
-    )
+    tg_token = os.getenv('TG_BOT_TOKEN')
+    proxy_url = os.getenv('PROXY_URL')
+
+    updater_kwargs = {'use_context': True}
+    if proxy_url:
+        updater_kwargs['request_kwargs'] = {'proxy_url': proxy_url}
+
+    updater = Updater(tg_token, **updater_kwargs)
     dispatcher = updater.dispatcher
 
-    dispatcher.bot_data['cms_read_token'] = os.environ['READ_ONLY_TOKEN']
     dispatcher.bot_data['cms_full_access_token'] = os.environ['FULL_ACCESS_TOKEN']
     dispatcher.bot_data['cms_url'] = (
         f"http://{os.getenv('HOST', 'localhost')}:{os.getenv('PORT', '1337')}"

@@ -132,3 +132,4 @@ build
 .strapi-cloud.json
 
 __pycache__
+!example-data.tar.gz

@@ -269,7 +269,11 @@ def handle_user_email_reply(update: Update, context: CallbackContext):
 
 
 def handle_users_reply(update, context):
-    db = get_database_connection()
+    db = get_database_connection(
+        context.bot_data['db_host'],
+        context.bot_data['db_port'],
+        context.bot_data['db_number'],
+    )
 
     if update.message:
         user_reply = update.message.text
@@ -303,14 +307,14 @@ def handle_users_reply(update, context):
         print(f'Ошибка: {err}')
 
 
-def get_database_connection():
+def get_database_connection(db_host, db_port, db_number):
     global _database
     if _database is None:
         load_dotenv()
         _database = redis.Redis(
-            host=os.getenv('DATABASE_HOST'),
-            port=os.getenv('DATABASE_PORT'),
-            db=os.getenv('DATABASE_NUMBER'),
+            host=db_host,
+            port=db_port,
+            db=db_number,
         )
 
     return _database
@@ -319,8 +323,12 @@ def get_database_connection():
 def main():
     load_dotenv()
 
-    tg_token = os.getenv('TG_BOT_TOKEN')
+    tg_token = os.environ['TG_BOT_TOKEN']
     proxy_url = os.getenv('PROXY_URL')
+
+    db_host = os.getenv('DATABASE_HOST', 'localhost')
+    db_port = os.getenv('DATABASE_PORT', '6379')
+    db_number = os.getenv('DATABASE_NUMBER', '0')
 
     updater_kwargs = {'use_context': True}
     if proxy_url:
@@ -333,6 +341,9 @@ def main():
     dispatcher.bot_data['cms_url'] = (
         f"http://{os.getenv('HOST', 'localhost')}:{os.getenv('PORT', '1337')}"
     )
+    dispatcher.bot_data['db_host'] = db_host
+    dispatcher.bot_data['db_port'] = db_port
+    dispatcher.bot_data['db_number'] = db_number
 
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
